@@ -4,6 +4,7 @@ Aplicación web para armar el horario semanal de tu empresa y compartirlo por Wh
 
 ## ✨ Funciones
 
+- **Interfaz con menú lateral** (☰): Horario (página de inicio), Personal y Ajustes.
 - **Horario semanal** con horas exactas de entrada y salida por persona y día.
 - **Chips rápidos** al asignar turno: 6:00–15:00, 7:00–16:00, 11:00–20:00, 12:00–21:00 y 3:00–10:00.
 - **Condiciones especiales por día**: 🏖️ Vacaciones, ✅ Disponible y 🤒 Incapacidad (reemplazan la entrada/salida y no cuentan como días trabajados en el resumen mensual).
@@ -19,7 +20,8 @@ Aplicación web para armar el horario semanal de tu empresa y compartirlo por Wh
 - **📷 Imagen**: de la semana completa o de un solo día (selector de día en el modal) para compartir al grupo.
 - **📊 Resumen mensual** de días programados por quincena; las condiciones especiales se muestran aparte y no suman días.
 - **Respaldo**: descarga todos los datos en un archivo JSON y restáuralos cuando quieras.
-- Nombre de la empresa configurable (⚙️) — aparece en el título y en los mensajes.
+- **⚙️ Ajustes**: nombre de la empresa, foto (logo) e ID fiscal — se ven en el menú y en las imágenes que compartes.
+- **🎨 Temas de color**: índigo, esmeralda, ámbar, rosa, pizarra y oscuro (nocturno). Se guardan en la base y se aplican en todos los dispositivos.
 
 ## 🚀 Cómo usarla en tu PC
 

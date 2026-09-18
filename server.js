@@ -12,6 +12,8 @@ const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const KEEP_BACKUPS = 30; // respaldos diarios conservados
+const THEMES = ['indigo', 'emerald', 'amber', 'rose', 'slate', 'dark'];
+const DEFAULT_SETTINGS = { company: '', taxId: '', logo: '', theme: 'indigo' };
 
 // ---------- Utilidades de datos ----------
 
@@ -183,14 +185,20 @@ app.put('/api/schedule', (req, res) => {
 
 app.get('/api/settings', (req, res) => {
   const db = loadDb();
-  res.json(db.settings || { company: '' });
+  res.json(Object.assign({}, DEFAULT_SETTINGS, db.settings || {}));
 });
 
+// Acepta cambios parciales: solo actualiza los campos enviados
 app.put('/api/settings', (req, res) => {
   const db = loadDb();
-  db.settings = Object.assign({}, db.settings, {
-    company: String((req.body && req.body.company) || '').trim()
-  });
+  const body = req.body || {};
+  const prev = Object.assign({}, DEFAULT_SETTINGS, db.settings || {});
+  db.settings = {
+    company: body.company !== undefined ? String(body.company).trim().slice(0, 60) : prev.company,
+    taxId: body.taxId !== undefined ? String(body.taxId).trim().slice(0, 40) : prev.taxId,
+    logo: body.logo !== undefined ? String(body.logo).slice(0, 300000) : prev.logo, // dataURL ~máx 2 MB
+    theme: THEMES.includes(body.theme) ? body.theme : prev.theme,
+  };
   saveDb(db);
   res.json(db.settings);
 });

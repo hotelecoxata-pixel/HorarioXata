@@ -91,7 +91,7 @@ async function loadAll() {
   people = p;
   shifts = s.shifts || {};
   settings = st;
-  if (settings.company) $('#app-title').textContent = `🗓 ${settings.company}`;
+  applyBranding();
 }
 
 // ---------- Render: horario ----------
@@ -234,7 +234,7 @@ function openCtxMenu(anchor, person) {
   }
 
   if (person.phone) {
-    items.push({ label: '💬 WhatsApp directo', fn: () => sendPersonWhatsApp(person) });
+    items.push({ label: '💬 WhatsApp directo', fn: () => openWhatsApp(buildPersonMessage(person), person.phone) });
   }
   items.push({ label: '🗑️ Retirar (eliminar)', fn: () => retirePerson(person), danger: true });
 
@@ -505,7 +505,7 @@ function personWeekCell(p) {
   return DAYS.map((_, i) => sh[String(i)] ? `${letter[i]} ${shiftLabel(sh[String(i)])}` : null).filter(Boolean).join(' · ');
 }
 
-function drawScheduleImage() {
+async function drawScheduleImage() {
   const dates = weekDates(currentWeek);
   const sections = buildImageSections();
   const daySuffix = imgDay === 'all' ? '' : ` — ${DAYS[imgDay].toUpperCase()} ${fmtDay(dates[imgDay])}`;
@@ -513,7 +513,7 @@ function drawScheduleImage() {
   const ctx = c.getContext('2d');
   const S = 2, W = IMG.W;
 
-  let H = IMG.pad + 34 + 30;
+  let H = IMG.pad + (logoUrl() ? 54 : 0) + 34 + 30;
   for (const sec of sections) H += IMG.bandH + sec.people.length * IMG.rowH + 6;
   if (!sections.length) H += 46;
   H += 34 + IMG.pad;
@@ -524,6 +524,21 @@ function drawScheduleImage() {
   ctx.fillRect(0, 0, W, H);
 
   let y = IMG.pad;
+  const logo = logoUrl();
+  if (logo) {
+    try {
+      const img = new Image();
+      await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = logo; });
+      const s = 46, r = 10, lx = W / 2 - s / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(lx, y, s, s, r);
+      ctx.clip();
+      ctx.drawImage(img, lx, y, s, s);
+      ctx.restore();
+      y += s + 8;
+    } catch (_) { /* logo inválido: se dibuja sin él */ }
+  }
   ctx.textAlign = 'center';
   ctx.fillStyle = IMG.ink;
   ctx.font = 'bold 26px system-ui, sans-serif';
@@ -701,19 +716,34 @@ function buildSummaryMessage() {
   return L.join('\n');
 }
 
-function drawSummaryImage() {
+async function drawSummaryImage() {
   const c = $('#schedule-canvas');
   const ctx = c.getContext('2d');
   const S = 2, W = 800, x0 = 26, x1 = W - 26, rowH = 34, pad = 26;
   const split = [0, 0.52, 0.72, 0.87].map(f => x0 + (x1 - x0) * f);
   const [y0, m0] = summaryMonth.split('-').map(Number);
 
-  const H = pad + 34 + 22 + IMG.bandH + Math.max(lastSummaryRows.length, 1) * rowH + 40 + pad;
+  const H = pad + (logoUrl() ? 54 : 0) + 34 + 22 + IMG.bandH + Math.max(lastSummaryRows.length, 1) * rowH + 40 + pad;
   c.width = W * S; c.height = H * S;
   ctx.scale(S, S);
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
 
   let y = pad;
+  const logo = logoUrl();
+  if (logo) {
+    try {
+      const img = new Image();
+      await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = logo; });
+      const s = 46, r = 10, lx = W / 2 - s / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(lx, y, s, s, r);
+      ctx.clip();
+      ctx.drawImage(img, lx, y, s, s);
+      ctx.restore();
+      y += s + 6;
+    } catch (_) {}
+  }
   ctx.fillStyle = IMG.ink; ctx.textAlign = 'center';
   ctx.font = 'bold 24px system-ui, sans-serif';
   ctx.fillText(`DÍAS PROGRAMADOS${settings.company ? ' — ' + settings.company.toUpperCase() : ''}`, W / 2, y + 22);
@@ -758,13 +788,99 @@ function drawSummaryImage() {
   ctx.textAlign = 'left';
 }
 
+// ---------- Marca de la empresa ----------
+const logoUrl = () => settings.logo || '';
+
+// Aplica tema, título y logo en header, drawer e imágenes
+function applyBranding() {
+  const name = settings.company || 'Gestor de Horarios';
+  $('#app-title').textContent = settings.company ? `🗓 ${settings.company}` : '🗓 Gestor de Horarios';
+  $('#drawer-company').textContent = name;
+  $('#drawer-taxid').textContent = settings.taxId || '';
+  const logo = logoUrl();
+  const dl = $('#drawer-logo');
+  dl.src = logo;
+  dl.hidden = !logo;
+  applyTheme(settings.theme);
+}
+
+function applyTheme(theme) {
+  if (!theme) theme = 'indigo';
+  document.body.dataset.theme = theme;
+  if (theme === 'dark') {
+    document.documentElement.dataset.theme = 'dark';
+  } else {
+    delete document.documentElement.dataset.theme;
+  }
+  $$('.theme-swatch').forEach(sw => sw.classList.toggle('active', sw.dataset.theme === theme));
+}
+
+// ---------- Menú lateral ----------
+function openDrawer() {
+  $('#drawer').classList.add('open');
+  $('#drawer').setAttribute('aria-hidden', 'false');
+  $('#drawer-backdrop').hidden = false;
+}
+function closeDrawer() {
+  $('#drawer').classList.remove('open');
+  $('#drawer').setAttribute('aria-hidden', 'true');
+  $('#drawer-backdrop').hidden = true;
+}
+
+function navigate(section) {
+  ['schedule', 'staff', 'settings'].forEach(id => { $('#tab-' + id).hidden = id !== section; });
+  $$('.drawer-link').forEach(l => l.classList.toggle('active', l.dataset.nav === section));
+  closeDrawer();
+  if (section === 'settings') showSettings();
+}
+
 // ---------- Ajustes ----------
+function showSettings() {
+  $('#inp-company').value = settings.company || '';
+  $('#inp-taxid').value = settings.taxId || '';
+  updateLogoPreview();
+  applyTheme(settings.theme);
+}
+
+function updateLogoPreview() {
+  const logo = logoUrl();
+  $('#logo-preview').src = logo;
+  $('#logo-preview').hidden = !logo;
+  $('#logo-placeholder').hidden = !!logo;
+  $('#btn-logo-remove').hidden = !logo;
+}
+
+// Reduce la imagen elegida a un dataURL de máx 256px para no inflar la base de datos
+function readLogoFile(file) {
+  const img = new Image();
+  img.onload = () => {
+    const S = 256;
+    const scale = Math.min(1, S / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * scale);
+    c.height = Math.round(img.height * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    settings.logo = c.toDataURL('image/png');
+    updateLogoPreview();
+    toast('Foto lista — toca «Guardar ajustes» para aplicarla');
+  };
+  img.onerror = () => toast('Esa imagen no se pudo leer');
+  img.src = URL.createObjectURL(file);
+}
+
 async function saveSettings() {
-  const company = $('#inp-company').value.trim();
   try {
-    settings = await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company }) });
-    $('#app-title').textContent = settings.company ? `🗓 ${settings.company}` : '🗓 Gestor de Horarios';
-    $('#modal-settings').hidden = true;
+    settings = await api('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company: $('#inp-company').value.trim(),
+        taxId: $('#inp-taxid').value.trim(),
+        logo: settings.logo || '',
+        theme: settings.theme || 'indigo',
+      }),
+    });
+    applyBranding();
     toast('Ajustes guardados ✅');
   } catch (e) { toast(e.message); }
 }
@@ -776,6 +892,7 @@ async function refresh() {
   shifts = s.shifts || {};
   renderSchedule();
   renderStaff();
+  applyBranding();
 }
 
 // ---------- Navegación de semanas ----------
@@ -808,10 +925,22 @@ function wire() {
   $('#btn-save-shift').addEventListener('click', saveShift);
   $('#btn-save-settings').addEventListener('click', saveSettings);
 
-  $('#btn-settings').addEventListener('click', () => {
-    $('#inp-company').value = settings.company || '';
-    $('#modal-settings').hidden = false;
+  // Menú lateral
+  $('#btn-menu').addEventListener('click', openDrawer);
+  $('#drawer-backdrop').addEventListener('click', closeDrawer);
+  $$('.drawer-link').forEach(l => l.addEventListener('click', () => navigate(l.dataset.nav)));
+
+  // Ajustes: logo y temas
+  $('#file-logo').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) readLogoFile(file);
+    e.target.value = '';
   });
+  $('#btn-logo-remove').addEventListener('click', () => { settings.logo = ''; updateLogoPreview(); });
+  $$('.theme-swatch').forEach(sw => sw.addEventListener('click', () => {
+    settings.theme = sw.dataset.theme;
+    applyTheme(settings.theme);
+  }));
 
   $('#btn-share-all').addEventListener('click', sendWeekWhatsApp);
   $('#btn-copy').addEventListener('click', () => copyText(buildWeekMessage(), 'Lista semanal copiada 📋'));
@@ -846,7 +975,7 @@ function wire() {
       toast('Respaldo restaurado ✅');
       monthShiftCache.clear();
       settings = await api('/api/settings');
-      if (settings.company) $('#app-title').textContent = `🗓 ${settings.company}`;
+      applyBranding();
       await refresh();
     } catch (err) { toast('Archivo no válido: ' + err.message); }
     e.target.value = '';
