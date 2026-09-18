@@ -9,7 +9,9 @@ Aplicación web para armar el horario semanal de tu empresa y compartirlo por Wh
 - **Condiciones especiales por día**: 🏖️ Vacaciones, ✅ Disponible y 🤒 Incapacidad (reemplazan la entrada/salida y no cuentan como días trabajados en el resumen mensual).
 - Navegación entre semanas (◀ ▶) y botón «Semana actual».
 - **Personal**: añadir, editar, suspender, reactivar, poner vacaciones, marcar incapacidad y retirar.
-- Los **suspendidos** aparecen con aviso ⚠️ en el horario; los retirados se eliminan con todo su historial.
+- Los **suspendidos** aparecen con aviso ⚠️ en el horario.
+- **🗄️ Historial de retirados**: al retirar a alguien, sus ficha y turnos pasados se guardan en la base de datos; puedes **reintegrarlo** con un toque y recupera todo.
+- **Base de datos local** (`data/db.json`) que acumula todo: personal activo, todas las semanas de horario guardadas, configuración e historial de retirados. **Respaldo automático diario** en `data/backups/` (se conservan los últimos 30).
 - **Compartir por WhatsApp**:
   - **WhatsApp individual**: botón «💬 WhatsApp individual» → lista del personal; al tocar una persona se abre su WhatsApp con su horario listo (de una en una).
   - Mensaje individual también desde 👥 → ⋮ → «WhatsApp directo».
@@ -51,11 +53,13 @@ Esta app no tiene contraseña. Si la pones en internet, cualquier persona con el
 ## 📁 Estructura
 
 ```
-├── server.js         # Servidor Express + API (personal, horario, ajustes, respaldo)
+├── server.js         # Servidor Express + API (personal, horario, historial, ajustes, respaldo)
 ├── public/
 │   ├── index.html    # Interfaz
 │   ├── style.css     # Estilos responsive (PC y móvil)
 │   └── app.js        # Lógica del frontend
-├── data/db.json      # Base de datos (se crea sola)
+├── data/
+│   ├── db.json       # Base de datos (se crea sola: personal, horarios, ajustes, historial)
+│   └── backups/      # Respaldo automático diario (últimos 30 días)
 └── package.json
 ```

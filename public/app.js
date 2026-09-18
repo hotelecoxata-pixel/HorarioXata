@@ -895,10 +895,49 @@ function wire() {
   // Enter en formulario de persona
   $('#modal-person').addEventListener('keydown', (e) => { if (e.key === 'Enter') savePerson(); });
 
+  // Historial de retirados
+  $('#btn-archive').addEventListener('click', toggleArchive);
+
   // Cerrar menú contextual al tocar fuera
   document.addEventListener('click', (e) => {
     if (!$('#ctx-menu').hidden && !e.target.closest('.ctx-menu')) $('#ctx-menu').hidden = true;
   });
+}
+
+// ---------- Historial de retirados ----------
+async function toggleArchive() {
+  const box = $('#archive-list');
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<p class="hint" style="padding:6px">Cargando…</p>';
+  try {
+    const list = await api('/api/archive');
+    if (!list.length) { box.innerHTML = '<p class="hint" style="padding:6px">Historial vacío — nadie retirado todavía.</p>'; return; }
+    box.innerHTML = '';
+    list.forEach(p => {
+      const div = document.createElement('div');
+      div.className = 'archive-item';
+      const fecha = p.retiredAt ? new Date(p.retiredAt).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+      div.innerHTML = `
+        <div class="info">
+          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="sub">${p.role ? escapeHtml(p.role) + ' · ' : ''}Retirado${fecha ? ' el ' + fecha : ''} · ${p.weeks} semana${p.weeks === 1 ? '' : 's'} de turnos guardadas</div>
+        </div>
+        <button class="btn btn-sm btn-primary">Reintegrar</button>`;
+      div.querySelector('button').addEventListener('click', async () => {
+        if (!confirm(`¿Reintegrar a ${p.name}? Volverá al personal activo con sus turnos pasados recuperados.`)) return;
+        try {
+          await api(`/api/archive/${p.id}/reinstate`, { method: 'POST' });
+          toast('Personal reintegrado ✅');
+          box.hidden = true;
+          await refresh();
+        } catch (e) { toast(e.message); }
+      });
+      box.appendChild(div);
+    });
+  } catch (e) {
+    box.innerHTML = `<p class="hint" style="padding:6px">Error: ${escapeHtml(e.message)}</p>`;
+  }
 }
 
 // ---------- Init ----------

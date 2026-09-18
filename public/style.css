@@ -307,6 +307,24 @@ section[hidden] { display: none !important; }
   text-align: center;
 }
 
+/* ---------- Historial de retirados ---------- */
+.archive-box { margin-top: 10px; }
+.archive-box > .btn { width: 100%; }
+.archive-list { margin-top: 10px; }
+.archive-item {
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.archive-item .info { flex: 1; min-width: 0; }
+.archive-item .name { font-weight: 700; font-size: .92rem; color: var(--muted); }
+.archive-item .sub { color: var(--muted); font-size: .78rem; }
+
 /* ---------- Chips de turnos rápidos y condiciones ---------- */
 .quick-shifts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .chip {

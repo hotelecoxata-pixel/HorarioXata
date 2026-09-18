@@ -10,23 +10,43 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const KEEP_BACKUPS = 30; // respaldos diarios conservados
 
 // ---------- Utilidades de datos ----------
 
 function loadDb() {
   try {
     if (fs.existsSync(DB_FILE)) {
-      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+      const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+      if (!Array.isArray(db.archive)) db.archive = []; // historial de retirados (migración)
+      return db;
     }
   } catch (e) {
     console.error('Error leyendo la base de datos:', e.message);
   }
-  return { people: [], schedule: {} };
+  return { people: [], schedule: {}, settings: {}, archive: [] };
 }
 
 function saveDb(db) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+  dailyBackup();
+}
+
+// Respaldo automático: una copia por día en data/backups/, se conservan las últimas 30
+function dailyBackup() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const file = path.join(BACKUP_DIR, `db-${today}.json`);
+    if (fs.existsSync(file)) return;
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    fs.copyFileSync(DB_FILE, file);
+    const files = fs.readdirSync(BACKUP_DIR).filter(f => /^db-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+    while (files.length > KEEP_BACKUPS) fs.unlinkSync(path.join(BACKUP_DIR, files.shift()));
+  } catch (e) {
+    console.error('Respaldo diario falló:', e.message);
+  }
 }
 
 // ---------- Middleware ----------
@@ -77,19 +97,60 @@ app.put('/api/people/:id', (req, res) => {
   res.json(p);
 });
 
-// Retirar persona (elimina su historial del horario)
+// Retirar persona: pasa al historial con todos sus turnos guardados (recuperable)
 app.delete('/api/people/:id', (req, res) => {
   const db = loadDb();
   const idx = db.people.findIndex(x => x.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Persona no encontrada' });
-  const removed = db.people.splice(idx, 1)[0];
+  const person = db.people.splice(idx, 1)[0];
 
-  // Quitar sus turnos de todas las semanas
+  // Snapshot de todos sus turnos en todas las semanas
+  const shiftsHistory = {};
+  for (const [week, shifts] of Object.entries(db.schedule || {})) {
+    if (shifts[person.id]) shiftsHistory[week] = shifts[person.id];
+  }
+  db.archive.push({
+    ...person,
+    status: 'retired',
+    retiredAt: new Date().toISOString(),
+    shiftsHistory,
+  });
+
+  // Quitar sus turnos del horario activo
   for (const week of Object.values(db.schedule || {})) {
-    delete week[removed.id];
+    delete week[person.id];
   }
   saveDb(db);
-  res.json({ ok: true, removed });
+  res.json({ ok: true, retired: person.name, semanasGuardadas: Object.keys(shiftsHistory).length });
+});
+
+// ---------- API: Historial (personal retirado) ----------
+
+app.get('/api/archive', (req, res) => {
+  const db = loadDb();
+  res.json((db.archive || []).map(({ shiftsHistory, ...rest }) => ({
+    ...rest,
+    weeks: Object.keys(shiftsHistory || {}).length,
+  })));
+});
+
+// Reintegrar: vuelve al personal activo con status activo y recupera sus turnos
+app.post('/api/archive/:id/reinstate', (req, res) => {
+  const db = loadDb();
+  const idx = db.archive.findIndex(x => x.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'No está en el historial' });
+  const entry = db.archive.splice(idx, 1)[0];
+  const { shiftsHistory, retiredAt, ...person } = entry;
+  person.status = 'active';
+  db.people.push(person);
+
+  db.schedule = db.schedule || {};
+  for (const [week, days] of Object.entries(shiftsHistory || {})) {
+    db.schedule[week] = db.schedule[week] || {};
+    db.schedule[week][person.id] = days;
+  }
+  saveDb(db);
+  res.json({ ok: true, person });
 });
 
 // ---------- API: Horario ----------
@@ -142,12 +203,14 @@ app.get('/api/backup', (req, res) => {
   res.json(db);
 });
 
-// Restaurar respaldo: enviar el JSON completo como body
+// Restaurar respaldo: enviar el JSON completo como body.
+// Si el respaldo es viejo (sin historial), se conserva el historial actual.
 app.post('/api/restore', (req, res) => {
   const body = req.body;
   if (!body || !Array.isArray(body.people) || typeof body.schedule !== 'object') {
     return res.status(400).json({ error: 'Archivo de respaldo no válido' });
   }
+  if (!Array.isArray(body.archive)) body.archive = loadDb().archive || [];
   saveDb(body);
   res.json({ ok: true });
 });
