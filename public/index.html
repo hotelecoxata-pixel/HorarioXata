@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#4f46e5">
+  <title>Gestor de Horarios</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-row">
+      <h1 id="app-title">🗓 Gestor de Horarios</h1>
+      <button id="btn-settings" class="btn-icon" title="Ajustes">⚙️</button>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="schedule">📅 Horario</button>
+      <button class="tab" data-tab="staff">👥 Personal</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ TAB: HORARIO ============ -->
+    <section id="tab-schedule">
+      <div class="week-nav">
+        <button id="btn-prev-week" class="btn-icon" title="Semana anterior">◀</button>
+        <div class="week-label" id="week-label">—</div>
+        <button id="btn-next-week" class="btn-icon" title="Semana siguiente">▶</button>
+      </div>
+      <div class="week-actions">
+        <button id="btn-now" class="btn btn-ghost">Semana actual</button>
+        <button id="btn-summary" class="btn btn-ghost" title="Días programados por persona en el mes">📊 Resumen</button>
+        <button id="btn-copy" class="btn btn-ghost" title="Copiar la lista para pegarla en cualquier chat">📋 Copiar lista</button>
+        <button id="btn-image" class="btn btn-ghost" title="Genera la imagen del horario semanal">📷 Imagen</button>
+        <button id="btn-share-all" class="btn btn-whatsapp" title="Envía a cada persona su horario por WhatsApp">💬 WhatsApp individual</button>
+      </div>
+      <div id="schedule-grid"></div>
+    </section>
+
+    <!-- ============ TAB: PERSONAL ============ -->
+    <section id="tab-staff" hidden>
+      <div class="staff-actions">
+        <button id="btn-add-person" class="btn btn-primary">＋ Añadir personal</button>
+      </div>
+      <ul id="staff-list" class="staff-list"></ul>
+      <div class="backup-row">
+        <button id="btn-backup" class="btn btn-ghost">💾 Descargar respaldo</button>
+        <label class="btn btn-ghost file-label">
+          📤 Restaurar respaldo
+          <input type="file" id="file-restore" accept="application/json" hidden>
+        </label>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ MODAL: persona (añadir/editar) ============ -->
+  <div id="modal-person" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2 id="person-modal-title">Añadir personal</h2>
+      <label class="field">
+        <span>Nombre *</span>
+        <input id="inp-name" type="text" placeholder="Ej: Juan Pérez" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Puesto / Área</span>
+        <input id="inp-role" type="text" placeholder="Ej: Cocina, Ventas…" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>WhatsApp (con código de país, ej: 573001234567)</span>
+        <input id="inp-phone" type="tel" placeholder="573001234567" autocomplete="off">
+      </label>
+      <div class="modal-buttons">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button id="btn-save-person" class="btn btn-primary">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: turno ============ -->
+  <div id="modal-shift" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2 id="shift-modal-title">Turno</h2>
+      <label class="field">
+        <span>Entrada</span>
+        <input id="inp-start" type="time">
+      </label>
+      <label class="field">
+        <span>Salida</span>
+        <input id="inp-end" type="time">
+      </label>
+      <input id="inp-cond" type="hidden">
+      <div class="quick-shifts">
+        <button type="button" class="chip" data-start="06:00" data-end="15:00">6:00 – 15:00</button>
+        <button type="button" class="chip" data-start="07:00" data-end="16:00">7:00 – 16:00</button>
+        <button type="button" class="chip" data-start="11:00" data-end="20:00">11:00 – 20:00</button>
+        <button type="button" class="chip" data-start="12:00" data-end="21:00">12:00 – 21:00</button>
+        <button type="button" class="chip" data-start="03:00" data-end="10:00">3:00 – 10:00</button>
+      </div>
+      <div class="quick-shifts quick-conditions">
+        <button type="button" class="chip chip-cond" data-cond="vacaciones">🏖️ Vacaciones</button>
+        <button type="button" class="chip chip-cond" data-cond="disponible">✅ Disponible</button>
+        <button type="button" class="chip chip-cond" data-cond="incapacidad">🤒 Incapacidad</button>
+      </div>
+      <p class="hint">Toca un chip para rellenar la entrada y salida, o deja ambos vacíos para quitar el turno de ese día.</p>
+      <div class="modal-buttons">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button id="btn-save-shift" class="btn btn-primary">Guardar turno</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: imagen del horario ============ -->
+  <div id="modal-image" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+      <h2>Imagen del horario</h2>
+      <div class="day-selector">
+        <span class="day-selector-label">¿Qué envías?</span>
+        <div id="img-day-chips" class="quick-shifts">
+          <button type="button" class="chip chip-day active" data-day="all">Semana completa</button>
+          <button type="button" class="chip chip-day" data-day="0">Lunes</button>
+          <button type="button" class="chip chip-day" data-day="1">Martes</button>
+          <button type="button" class="chip chip-day" data-day="2">Miércoles</button>
+          <button type="button" class="chip chip-day" data-day="3">Jueves</button>
+          <button type="button" class="chip chip-day" data-day="4">Viernes</button>
+          <button type="button" class="chip chip-day" data-day="5">Sábado</button>
+          <button type="button" class="chip chip-day" data-day="6">Domingo</button>
+        </div>
+      </div>
+      <div class="image-wrap"><canvas id="schedule-canvas"></canvas></div>
+      <div class="modal-buttons">
+        <button class="btn btn-ghost" data-close>Cerrar</button>
+        <button id="btn-download-image" class="btn btn-ghost">💾 Descargar</button>
+        <button id="btn-share-image" class="btn btn-whatsapp">📤 Compartir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: resumen quincenal/mensual ============ -->
+  <div id="modal-summary" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+      <h2>📊 Días programados del mes</h2>
+      <p class="hint">Se agrupa por quincena: 1.ª del 1 al 15, 2.ª del 16 al fin de mes.</p>
+      <div class="month-nav">
+        <button id="btn-prev-month" class="btn btn-sm btn-ghost">◀ Mes anterior</button>
+        <span id="summary-month-label" class="month-label"></span>
+        <button id="btn-next-month" class="btn btn-sm btn-ghost">Mes siguiente ▶</button>
+      </div>
+      <div class="image-wrap"><table id="summary-table"></table></div>
+      <div class="modal-buttons">
+        <button class="btn btn-ghost" data-close>Cerrar</button>
+        <button id="btn-copy-summary" class="btn btn-ghost">📋 Copiar resumen</button>
+        <button id="btn-share-summary" class="btn btn-whatsapp">💬 Enviar</button>
+        <button id="btn-image-summary" class="btn btn-primary">📷 Imagen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: envío individual por WhatsApp ============ -->
+  <div id="modal-send" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2>💬 Enviar horario a cada persona</h2>
+      <p class="hint">Elige a quién enviarle su horario. Se abre WhatsApp con el mensaje listo; se envía de una en una.</p>
+      <div id="send-all-bar" class="send-all-bar"></div>
+      <div id="send-list" class="pick-list"></div>
+      <div class="modal-buttons">
+        <button class="btn btn-ghost" data-close>Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: elegir persona para turno ============ -->
+  <div id="modal-pick" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2>¿A quién asignas el turno?</h2>
+      <div id="pick-list" class="pick-list"></div>
+      <div class="modal-buttons">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: ajustes ============ -->
+  <div id="modal-settings" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2>Ajustes</h2>
+      <label class="field">
+        <span>Nombre de la empresa</span>
+        <input id="inp-company" type="text" placeholder="Ej: Mi Empresa S.A.S." autocomplete="off">
+      </label>
+      <div class="modal-buttons">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button id="btn-save-settings" class="btn btn-primary">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MENÚ contextual de persona ============ -->
+  <div id="ctx-menu" class="ctx-menu" hidden></div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
