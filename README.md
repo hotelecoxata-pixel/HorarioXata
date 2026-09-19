@@ -4,6 +4,7 @@ Aplicación web para armar el horario semanal de tu empresa y compartirlo por Wh
 
 ## ✨ Funciones
 
+- **Interfaz con menú lateral** (☰): Horario (página de inicio), Personal y Ajustes.
 - **Horario semanal** con horas exactas de entrada y salida por persona y día.
 - **Chips rápidos** al asignar turno: 6:00–15:00, 7:00–16:00, 11:00–20:00, 12:00–21:00 y 3:00–10:00.
 - **Condiciones especiales por día**: 🏖️ Vacaciones, ✅ Disponible y 🤒 Incapacidad (reemplazan la entrada/salida y no cuentan como días trabajados en el resumen mensual).
@@ -19,7 +20,21 @@ Aplicación web para armar el horario semanal de tu empresa y compartirlo por Wh
 - **📷 Imagen**: de la semana completa o de un solo día (selector de día en el modal) para compartir al grupo.
 - **📊 Resumen mensual** de días programados por quincena; las condiciones especiales se muestran aparte y no suman días.
 - **Respaldo**: descarga todos los datos en un archivo JSON y restáuralos cuando quieras.
-- Nombre de la empresa configurable (⚙️) — aparece en el título y en los mensajes.
+- **⚙️ Ajustes**: nombre de la empresa, foto (logo) e ID fiscal — se ven en el menú y en las imágenes que compartes.
+- **🎨 Temas de color**: índigo, esmeralda, ámbar, rosa, pizarra y oscuro (nocturno). Se guardan en la base y se aplican en todos los dispositivos.
+
+## ☁️ App en internet (Cloudflare Workers)
+
+La app está desplegada y disponible **24/7** en:
+
+**https://horarioxata.yasser26ah.workers.dev**
+
+- Funciona desde PC y celular, sin estar en el mismo Wi-Fi.
+- La base de datos vive en **Cloudflare KV** (con respaldo diario automático, últimos 30 días) — no depende de tu PC.
+- Para redesplegar tras cambios: `npx wrangler deploy` (requiere `wrangler login`).
+- Configuración del Worker: `wrangler.jsonc` (assets estáticos + binding KV `HORARIOS`); código del backend en la nube: `worker.js`.
+- La versión local (`npm start`) sigue funcionando con su propia base en `data/db.json`; son bases independientes.
+- **Nota:** desde el 2026-09-19 el Worker vive en la cuenta de `yasser26ah@gmail.com` (la cuenta anterior de ECOXATA conserva los datos históricos en su propio KV). Esta base arrancó vacía: entra con `admin / admin123` y cámbiala enseguida.
 
 ## 🚀 Cómo usarla en tu PC
 
@@ -43,23 +58,47 @@ Abre `http://localhost:3000` en tu navegador. Para usarla desde el celular **en 
 
 > ⚠️ En el plan gratis de Render el servicio se duerme por inactividad y el archivo de datos puede reiniciarse en re-despliegues. Usa el botón «💾 Descargar respaldo» con frecuencia, o pide ayuda para configurar un disco persistente.
 
-## 🔒 Seguridad (opcional pero recomendado)
+## 🔒 Seguridad — Usuarios, login y roles
 
-Esta app no tiene contraseña. Si la pones en internet, cualquier persona con el enlace podría ver/modificar el horario. Opciones sencillas:
+La app ahora está protegida con inicio de sesión obligatorio y control de acceso por roles.
 
-- Comparte la URL solo con tu personal de confianza.
-- Pide que se agregue protección con usuario/contraseña (puedo añadirlo si lo necesitas).
+**Primer acceso:**
+
+- **Usuario:** `admin`
+- **Contraseña:** `admin123`
+
+> ⚠️ Cambia esta contraseña enseguida: entra con admin → ☰ → 🔐 Usuarios → 🔑 → escribe la nueva.
+
+**Roles y permisos:**
+
+| Rol | Puede |
+|---|---|
+| 👑 **Administrador** | Todo: personal, horario, ajustes, respaldos y **gestionar usuarios** (crear, cambiar rol/contraseña, eliminar) |
+| ✏️ **Editor** | Gestionar personal y horario, y guardar ajustes. No ve usuarios ni respaldos ni puede retirar personal |
+| 👀 **Solo ver** | Consultar horario y personal. Ningún botón de edición aparece |
+
+**Cómo funciona:**
+
+- Al abrir la app aparece la **pantalla de login**; sin sesión no se ve ningún dato.
+- La sesión dura **30 días** en el mismo navegador (token Bearer guardado en la sesión de la pestaña).
+- El backend valida el token y el rol en **cada petición** (lo que ve la UI es solo el reflejo del permiso real).
+- Las contraseñas se guardan con **hash + salt** (scrypt local / PBKDF2 en la nube), nunca en texto plano.
+- Al cerrar sesión (🚪 en la cabecera) el token se invalida en el servidor.
+- Funciona igual en el servidor local (`server.js`) que en Cloudflare (`worker.js`).
+- Los respaldos ya no incluyen usuarios ni sesiones: al restaurar no se rompe el acceso.
 
 ## 📁 Estructura
 
 ```
-├── server.js         # Servidor Express + API (personal, horario, historial, ajustes, respaldo)
+├── server.js         # Servidor Express local + API (usa data/db.json)
+├── worker.js         # Worker de Cloudflare para el despliegue en internet (usa KV)
+├── wrangler.jsonc    # Configuración del despliegue (assets + KV)
 ├── public/
 │   ├── index.html    # Interfaz
 │   ├── style.css     # Estilos responsive (PC y móvil)
-│   └── app.js        # Lógica del frontend
+│   └── app.js        # Lógica del frontend (compartida por local y nube)
 ├── data/
-│   ├── db.json       # Base de datos (se crea sola: personal, horarios, ajustes, historial)
-│   └── backups/      # Respaldo automático diario (últimos 30 días)
+│   ├── db.json       # Base de datos local (se crea sola)
+│   └── backups/      # Respaldo automático diario local (últimos 30 días)
 └── package.json
 ```

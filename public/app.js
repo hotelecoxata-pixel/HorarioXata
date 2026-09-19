@@ -18,7 +18,11 @@ let shiftTarget = null;     // { personId, day }
 let imgDay = 'all';         // día seleccionado para la imagen: 'all' | 0..6
 let summaryMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
 let lastSummaryRows = [];
+let currentUser = null;                     // { id, username, role } del usuario autenticado
+let authToken = localStorage.getItem('token') || null;
 const monthShiftCache = new Map();          // 'YYYY-MM' -> Map(personId -> { name, role, status, shifts })
+const ROLE_LABEL = { admin: '👑 Administrador', editor: '✏️ Editor', viewer: '👀 Solo ver' };
+const can = (...roles) => !!currentUser && roles.includes(currentUser.role); // permisos por rol
 
 // ---------- Helpers ----------
 const $ = (sel) => document.querySelector(sel);
@@ -71,14 +75,136 @@ function toast(msg) {
   toast._timer = setTimeout(() => { t.hidden = true; }, 2600);
 }
 
-async function api(path, opts) {
-  const res = await fetch(path, opts);
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401) { logoutLocal('Tu sesión expiró. Inicia sesión de nuevo.'); throw new Error('No autenticado'); }
   if (!res.ok) {
     let msg = `Error ${res.status}`;
     try { msg = (await res.json()).error || msg; } catch (_) {}
     throw new Error(msg);
   }
   return res.json();
+}
+
+// ================= AUTENTICACIÓN (frontend) =================
+
+function showLogin(message) {
+  currentUser = null;
+  authToken = null;
+  localStorage.removeItem('token');
+  $('#login-screen').hidden = false;
+  document.querySelector('.app-header').hidden = true;
+  document.querySelector('main').hidden = true;
+  $('#drawer').classList.remove('open');
+  $('#drawer-backdrop').hidden = true;
+  const err = $('#login-error');
+  if (message) { err.textContent = message; err.hidden = false; } else { err.hidden = true; }
+}
+
+function showApp() {
+  $('#login-screen').hidden = true;
+  document.querySelector('.app-header').hidden = false;
+  document.querySelector('main').hidden = false;
+  $('#btn-logout').hidden = false;
+  $('#nav-users').hidden = currentUser.role !== 'admin';
+  // Permisos visibles en la UI: el backend también lo valida en cada pedido
+  $('#btn-save-settings').hidden = !can('admin', 'editor');
+  document.querySelector('.backup-row').hidden = !can('admin');
+  applyBranding();
+}
+
+function logoutLocal(msg) {
+  showLogin(msg);
+}
+
+async function doLogin(username, password) {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  authToken = data.token;
+  currentUser = data.user;
+  localStorage.setItem('token', authToken);
+  showApp();
+  await loadAll();
+  renderSchedule();
+  renderStaff();
+}
+
+async function doLogout() {
+  try { await api('/api/auth/logout', { method: 'POST' }); } catch (_) {}
+  logoutLocal();
+}
+
+// ---------- Gestión de usuarios (solo admin) ----------
+async function createUser() {
+  const username = $('#inp-new-user').value.trim();
+  const password = $('#inp-new-pass').value;
+  const role = $('#inp-new-role').value;
+  if (!username || password.length < 6) { toast('Usuario y contraseña (mín. 6 caracteres) son obligatorios'); return; }
+  try {
+    await api('/api/auth/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, role }) });
+    toast('Usuario creado ✅');
+    $('#inp-new-user').value = ''; $('#inp-new-pass').value = ''; $('#inp-new-role').value = 'viewer';
+    await renderUsers();
+  } catch (e) { toast(e.message); }
+}
+
+async function renderUsers() {
+  if (!can('admin')) return;
+  const list = $('#users-list');
+  try {
+    const users = await api('/api/auth/users');
+    list.innerHTML = '';
+    users.forEach(u => {
+      const li = document.createElement('li');
+      li.className = 'user-item';
+      const you = u.id === currentUser.id ? ' <span class="you">· tú</span>' : '';
+      const sel = ['admin', 'editor', 'viewer'].map(r =>
+        `<option value="${r}"${u.role === r ? ' selected' : ''}>${ROLE_LABEL[r]}</option>`).join('');
+      li.innerHTML = `
+        <div class="avatar">${escapeHtml(initials(u.username))}</div>
+        <div class="info">
+          <div class="name">${escapeHtml(u.username)}${you}<span class="badge ${u.role}">${ROLE_LABEL[u.role]}</span></div>
+          <div class="sub">Creado ${u.createdAt ? new Date(u.createdAt).toLocaleDateString('es') : '—'}</div>
+        </div>
+        <select class="role-sel">${sel}</select>
+        <button class="btn btn-sm btn-ghost pwd" title="Cambiar contraseña">🔑</button>
+        <button class="btn btn-sm btn-ghost del" title="Eliminar usuario" ${u.id === currentUser.id ? 'disabled' : ''}>🗑️</button>`;
+      li.querySelector('.role-sel').addEventListener('change', async (e) => {
+        try {
+          await api(`/api/auth/users/${u.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: e.target.value }) });
+          toast('Rol actualizado ✅');
+          await renderUsers();
+        } catch (err) { toast(err.message); await renderUsers(); }
+      });
+      li.querySelector('.pwd').addEventListener('click', async () => {
+        const p = prompt(`Nueva contraseña para ${u.username} (mín. 6):`);
+        if (p === null) return;
+        if (p.length < 6) { toast('Mínimo 6 caracteres'); return; }
+        try {
+          await api(`/api/auth/users/${u.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: p }) });
+          toast('Contraseña actualizada ✅');
+        } catch (err) { toast(err.message); }
+      });
+      li.querySelector('.del').addEventListener('click', async () => {
+        if (!confirm(`¿Eliminar el usuario ${u.username}?`)) return;
+        try {
+          await api(`/api/auth/users/${u.id}`, { method: 'DELETE' });
+          toast('Usuario eliminado');
+          await renderUsers();
+        } catch (err) { toast(err.message); }
+      });
+      list.appendChild(li);
+    });
+  } catch (e) {
+    list.innerHTML = `<li class="empty-note">Error: ${escapeHtml(e.message)}</li>`;
+  }
 }
 
 // ---------- Carga inicial ----------
@@ -91,7 +217,7 @@ async function loadAll() {
   people = p;
   shifts = s.shifts || {};
   settings = st;
-  if (settings.company) $('#app-title').textContent = `🗓 ${settings.company}`;
+  applyBranding();
 }
 
 // ---------- Render: horario ----------
@@ -140,17 +266,19 @@ function renderSchedule() {
       </div>
       <div class="day-body">
         ${rows.join('')}
-        <button class="add-shift-btn" data-day="${i}">＋ Añadir turno</button>
+        ${can('admin', 'editor') ? `<button class="add-shift-btn" data-day="${i}">＋ Añadir turno</button>` : ''}
       </div>`;
     grid.appendChild(card);
   });
 
-  grid.querySelectorAll('.person-row[data-person]').forEach(el => {
-    el.addEventListener('click', () => openShiftModal(el.dataset.person, Number(el.dataset.day)));
-  });
-  grid.querySelectorAll('.add-shift-btn').forEach(el => {
-    el.addEventListener('click', () => openAddShift(el.dataset.day));
-  });
+  if (can('admin', 'editor')) {
+    grid.querySelectorAll('.person-row[data-person]').forEach(el => {
+      el.addEventListener('click', () => openShiftModal(el.dataset.person, Number(el.dataset.day)));
+    });
+    grid.querySelectorAll('.add-shift-btn').forEach(el => {
+      el.addEventListener('click', () => openAddShift(el.dataset.day));
+    });
+  }
 }
 
 function escapeHtml(s) {
@@ -178,8 +306,9 @@ function renderStaff() {
         <div class="name">${escapeHtml(p.name)}<span class="badge ${p.status}">${STATUS_LABEL[p.status]}</span></div>
         <div class="sub">${p.role ? escapeHtml(p.role) + ' · ' : ''}${p.phone ? '📱 ' + escapeHtml(p.phone) : 'Sin teléfono'}</div>
       </div>
-      <button class="menu-btn" aria-label="Opciones">⋮</button>`;
-    li.querySelector('.menu-btn').addEventListener('click', (e) => {
+      ${can('admin', 'editor') ? '<button class="menu-btn" aria-label="Opciones">⋮</button>' : ''}`;
+    const menuBtn = li.querySelector('.menu-btn');
+    if (menuBtn) menuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       openCtxMenu(e.currentTarget, p);
     });
@@ -234,7 +363,7 @@ function openCtxMenu(anchor, person) {
   }
 
   if (person.phone) {
-    items.push({ label: '💬 WhatsApp directo', fn: () => sendPersonWhatsApp(person) });
+    items.push({ label: '💬 WhatsApp directo', fn: () => openWhatsApp(buildPersonMessage(person), person.phone) });
   }
   items.push({ label: '🗑️ Retirar (eliminar)', fn: () => retirePerson(person), danger: true });
 
@@ -505,7 +634,7 @@ function personWeekCell(p) {
   return DAYS.map((_, i) => sh[String(i)] ? `${letter[i]} ${shiftLabel(sh[String(i)])}` : null).filter(Boolean).join(' · ');
 }
 
-function drawScheduleImage() {
+async function drawScheduleImage() {
   const dates = weekDates(currentWeek);
   const sections = buildImageSections();
   const daySuffix = imgDay === 'all' ? '' : ` — ${DAYS[imgDay].toUpperCase()} ${fmtDay(dates[imgDay])}`;
@@ -513,7 +642,7 @@ function drawScheduleImage() {
   const ctx = c.getContext('2d');
   const S = 2, W = IMG.W;
 
-  let H = IMG.pad + 34 + 30;
+  let H = IMG.pad + (logoUrl() ? 54 : 0) + 34 + 30;
   for (const sec of sections) H += IMG.bandH + sec.people.length * IMG.rowH + 6;
   if (!sections.length) H += 46;
   H += 34 + IMG.pad;
@@ -524,6 +653,21 @@ function drawScheduleImage() {
   ctx.fillRect(0, 0, W, H);
 
   let y = IMG.pad;
+  const logo = logoUrl();
+  if (logo) {
+    try {
+      const img = new Image();
+      await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = logo; });
+      const s = 46, r = 10, lx = W / 2 - s / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(lx, y, s, s, r);
+      ctx.clip();
+      ctx.drawImage(img, lx, y, s, s);
+      ctx.restore();
+      y += s + 8;
+    } catch (_) { /* logo inválido: se dibuja sin él */ }
+  }
   ctx.textAlign = 'center';
   ctx.fillStyle = IMG.ink;
   ctx.font = 'bold 26px system-ui, sans-serif';
@@ -701,19 +845,34 @@ function buildSummaryMessage() {
   return L.join('\n');
 }
 
-function drawSummaryImage() {
+async function drawSummaryImage() {
   const c = $('#schedule-canvas');
   const ctx = c.getContext('2d');
   const S = 2, W = 800, x0 = 26, x1 = W - 26, rowH = 34, pad = 26;
   const split = [0, 0.52, 0.72, 0.87].map(f => x0 + (x1 - x0) * f);
   const [y0, m0] = summaryMonth.split('-').map(Number);
 
-  const H = pad + 34 + 22 + IMG.bandH + Math.max(lastSummaryRows.length, 1) * rowH + 40 + pad;
+  const H = pad + (logoUrl() ? 54 : 0) + 34 + 22 + IMG.bandH + Math.max(lastSummaryRows.length, 1) * rowH + 40 + pad;
   c.width = W * S; c.height = H * S;
   ctx.scale(S, S);
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
 
   let y = pad;
+  const logo = logoUrl();
+  if (logo) {
+    try {
+      const img = new Image();
+      await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = logo; });
+      const s = 46, r = 10, lx = W / 2 - s / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(lx, y, s, s, r);
+      ctx.clip();
+      ctx.drawImage(img, lx, y, s, s);
+      ctx.restore();
+      y += s + 6;
+    } catch (_) {}
+  }
   ctx.fillStyle = IMG.ink; ctx.textAlign = 'center';
   ctx.font = 'bold 24px system-ui, sans-serif';
   ctx.fillText(`DÍAS PROGRAMADOS${settings.company ? ' — ' + settings.company.toUpperCase() : ''}`, W / 2, y + 22);
@@ -758,13 +917,100 @@ function drawSummaryImage() {
   ctx.textAlign = 'left';
 }
 
+// ---------- Marca de la empresa ----------
+const logoUrl = () => settings.logo || '';
+
+// Aplica tema, título y logo en header, drawer e imágenes
+function applyBranding() {
+  const name = settings.company || 'Gestor de Horarios';
+  $('#app-title').textContent = settings.company ? `🗓 ${settings.company}` : '🗓 Gestor de Horarios';
+  $('#drawer-company').textContent = name;
+  $('#drawer-taxid').textContent = settings.taxId || '';
+  const logo = logoUrl();
+  const dl = $('#drawer-logo');
+  dl.src = logo;
+  dl.hidden = !logo;
+  applyTheme(settings.theme);
+}
+
+function applyTheme(theme) {
+  if (!theme) theme = 'indigo';
+  document.body.dataset.theme = theme;
+  if (theme === 'dark') {
+    document.documentElement.dataset.theme = 'dark';
+  } else {
+    delete document.documentElement.dataset.theme;
+  }
+  $$('.theme-swatch').forEach(sw => sw.classList.toggle('active', sw.dataset.theme === theme));
+}
+
+// ---------- Menú lateral ----------
+function openDrawer() {
+  $('#drawer').classList.add('open');
+  $('#drawer').setAttribute('aria-hidden', 'false');
+  $('#drawer-backdrop').hidden = false;
+}
+function closeDrawer() {
+  $('#drawer').classList.remove('open');
+  $('#drawer').setAttribute('aria-hidden', 'true');
+  $('#drawer-backdrop').hidden = true;
+}
+
+function navigate(section) {
+  ['schedule', 'staff', 'settings', 'users'].forEach(id => { $('#tab-' + id).hidden = id !== section; });
+  $$('.drawer-link').forEach(l => l.classList.toggle('active', l.dataset.nav === section));
+  closeDrawer();
+  if (section === 'settings') showSettings();
+  if (section === 'users') renderUsers();
+}
+
 // ---------- Ajustes ----------
+function showSettings() {
+  $('#inp-company').value = settings.company || '';
+  $('#inp-taxid').value = settings.taxId || '';
+  updateLogoPreview();
+  applyTheme(settings.theme);
+}
+
+function updateLogoPreview() {
+  const logo = logoUrl();
+  $('#logo-preview').src = logo;
+  $('#logo-preview').hidden = !logo;
+  $('#logo-placeholder').hidden = !!logo;
+  $('#btn-logo-remove').hidden = !logo;
+}
+
+// Reduce la imagen elegida a un dataURL de máx 256px para no inflar la base de datos
+function readLogoFile(file) {
+  const img = new Image();
+  img.onload = () => {
+    const S = 256;
+    const scale = Math.min(1, S / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * scale);
+    c.height = Math.round(img.height * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    settings.logo = c.toDataURL('image/png');
+    updateLogoPreview();
+    toast('Foto lista — toca «Guardar ajustes» para aplicarla');
+  };
+  img.onerror = () => toast('Esa imagen no se pudo leer');
+  img.src = URL.createObjectURL(file);
+}
+
 async function saveSettings() {
-  const company = $('#inp-company').value.trim();
   try {
-    settings = await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company }) });
-    $('#app-title').textContent = settings.company ? `🗓 ${settings.company}` : '🗓 Gestor de Horarios';
-    $('#modal-settings').hidden = true;
+    settings = await api('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company: $('#inp-company').value.trim(),
+        taxId: $('#inp-taxid').value.trim(),
+        logo: settings.logo || '',
+        theme: settings.theme || 'indigo',
+      }),
+    });
+    applyBranding();
     toast('Ajustes guardados ✅');
   } catch (e) { toast(e.message); }
 }
@@ -776,6 +1022,7 @@ async function refresh() {
   shifts = s.shifts || {};
   renderSchedule();
   renderStaff();
+  applyBranding();
 }
 
 // ---------- Navegación de semanas ----------
@@ -808,10 +1055,22 @@ function wire() {
   $('#btn-save-shift').addEventListener('click', saveShift);
   $('#btn-save-settings').addEventListener('click', saveSettings);
 
-  $('#btn-settings').addEventListener('click', () => {
-    $('#inp-company').value = settings.company || '';
-    $('#modal-settings').hidden = false;
+  // Menú lateral
+  $('#btn-menu').addEventListener('click', openDrawer);
+  $('#drawer-backdrop').addEventListener('click', closeDrawer);
+  $$('.drawer-link').forEach(l => l.addEventListener('click', () => navigate(l.dataset.nav)));
+
+  // Ajustes: logo y temas
+  $('#file-logo').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) readLogoFile(file);
+    e.target.value = '';
   });
+  $('#btn-logo-remove').addEventListener('click', () => { settings.logo = ''; updateLogoPreview(); });
+  $$('.theme-swatch').forEach(sw => sw.addEventListener('click', () => {
+    settings.theme = sw.dataset.theme;
+    applyTheme(settings.theme);
+  }));
 
   $('#btn-share-all').addEventListener('click', sendWeekWhatsApp);
   $('#btn-copy').addEventListener('click', () => copyText(buildWeekMessage(), 'Lista semanal copiada 📋'));
@@ -846,7 +1105,7 @@ function wire() {
       toast('Respaldo restaurado ✅');
       monthShiftCache.clear();
       settings = await api('/api/settings');
-      if (settings.company) $('#app-title').textContent = `🗓 ${settings.company}`;
+      applyBranding();
       await refresh();
     } catch (err) { toast('Archivo no válido: ' + err.message); }
     e.target.value = '';
@@ -894,6 +1153,22 @@ function wire() {
 
   // Enter en formulario de persona
   $('#modal-person').addEventListener('keydown', (e) => { if (e.key === 'Enter') savePerson(); });
+
+  // Autenticación
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#btn-login');
+    btn.disabled = true;
+    try {
+      await doLogin($('#inp-login-user').value.trim(), $('#inp-login-pass').value);
+    } catch (err) {
+      const errBox = $('#login-error');
+      errBox.textContent = err.message;
+      errBox.hidden = false;
+    } finally { btn.disabled = false; }
+  });
+  $('#btn-logout').addEventListener('click', doLogout);
+  $('#btn-create-user').addEventListener('click', createUser);
 
   // Historial de retirados
   $('#btn-archive').addEventListener('click', toggleArchive);
@@ -943,12 +1218,19 @@ async function toggleArchive() {
 // ---------- Init ----------
 (async function init() {
   wire();
-  try {
-    await loadAll();
-    renderSchedule();
-    renderStaff();
-  } catch (e) {
-    toast('No se pudo conectar con el servidor');
-    console.error(e);
+  if (authToken) {
+    try {
+      const me = await api('/api/auth/me');
+      currentUser = me.user;
+      showApp();
+      await loadAll();
+      renderSchedule();
+      renderStaff();
+      return;
+    } catch (e) {
+      if ($('#login-screen').hidden === false) return; // ya se mostró el login por un 401
+      console.error(e);
+    }
   }
+  showLogin();
 })();

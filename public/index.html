@@ -9,19 +9,54 @@
 </head>
 <body>
 
+  <!-- ============ PANTALLA DE LOGIN ============ -->
+  <div id="login-screen" class="login-screen" hidden>
+    <form id="login-form" class="login-card">
+      <div class="login-logo">
+        <img id="login-logo" src="" alt="" hidden>
+        <div id="login-logo-ph" class="logo-placeholder">🗓</div>
+      </div>
+      <h1 id="login-title">Gestor de Horarios</h1>
+      <p class="login-sub">Inicia sesión para continuar</p>
+      <label class="field">
+        <span>Usuario</span>
+        <input id="inp-login-user" type="text" autocomplete="username" required>
+      </label>
+      <label class="field">
+        <span>Contraseña</span>
+        <input id="inp-login-pass" type="password" autocomplete="current-password" required>
+      </label>
+      <button id="btn-login" type="submit" class="btn btn-primary btn-block">Entrar</button>
+      <p id="login-error" class="login-error" hidden></p>
+    </form>
+  </div>
+
   <header class="app-header">
     <div class="header-row">
+      <button id="btn-menu" class="btn-icon" title="Menú" aria-label="Abrir menú">☰</button>
       <h1 id="app-title">🗓 Gestor de Horarios</h1>
-      <button id="btn-settings" class="btn-icon" title="Ajustes">⚙️</button>
+      <button id="btn-logout" class="btn-icon" title="Cerrar sesión" aria-label="Cerrar sesión" hidden>🚪</button>
     </div>
-    <nav class="tabs">
-      <button class="tab active" data-tab="schedule">📅 Horario</button>
-      <button class="tab" data-tab="staff">👥 Personal</button>
-    </nav>
   </header>
 
+  <!-- ============ MENÚ LATERAL (drawer) ============ -->
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+  <nav id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-brand">
+      <img id="drawer-logo" src="" alt="" hidden>
+      <div class="drawer-brand-text">
+        <span id="drawer-company">Gestor de Horarios</span>
+        <span id="drawer-taxid" class="sub"></span>
+      </div>
+    </div>
+    <button class="drawer-link active" data-nav="schedule">📅 Horario</button>
+    <button class="drawer-link" data-nav="staff">👥 Personal</button>      <button class="drawer-link" data-nav="settings">⚙️ Ajustes</button>
+      <button class="drawer-link" data-nav="users" id="nav-users" hidden>🔐 Usuarios</button>
+      <div class="drawer-foot">v1.1</div>
+  </nav>
+
   <main>
-    <!-- ============ TAB: HORARIO ============ -->
+    <!-- ============ SECCIÓN: HORARIO ============ -->
     <section id="tab-schedule">
       <div class="week-nav">
         <button id="btn-prev-week" class="btn-icon" title="Semana anterior">◀</button>
@@ -38,7 +73,7 @@
       <div id="schedule-grid"></div>
     </section>
 
-    <!-- ============ TAB: PERSONAL ============ -->
+    <!-- ============ SECCIÓN: PERSONAL ============ -->
     <section id="tab-staff" hidden>
       <div class="staff-actions">
         <button id="btn-add-person" class="btn btn-primary">＋ Añadir personal</button>
@@ -56,9 +91,75 @@
         <div id="archive-list" class="archive-list" hidden></div>
       </div>
     </section>
-  </main>
+    <!-- ============ SECCIÓN: AJUSTES ============ -->
+    <section id="tab-settings" hidden>
+      <h2 class="settings-title">Ajustes</h2>
+      <div class="settings-card">
+        <h3>🏢 Empresa</h3>
+        <div class="logo-row">
+          <img id="logo-preview" src="" alt="Logo" hidden>
+          <div id="logo-placeholder" class="logo-placeholder">🏢</div>
+          <div class="logo-actions">
+            <label class="btn btn-ghost">🖼️ Cambiar foto
+              <input type="file" id="file-logo" accept="image/*" hidden>
+            </label>
+            <button id="btn-logo-remove" class="btn btn-ghost btn-sm" hidden>Quitar</button>
+          </div>
+        </div>
+        <label class="field">
+          <span>Nombre de la empresa</span>
+          <input id="inp-company" type="text" placeholder="Ej: ECOXATA" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>ID fiscal / NIT / RIF</span>
+          <input id="inp-taxid" type="text" placeholder="Ej: J-12345678-9" autocomplete="off">
+        </label>
+      </div>
+      <div class="settings-card">
+        <h3>🎨 Tema de colores</h3>
+        <div id="theme-list" class="theme-list">
+          <button type="button" class="theme-swatch" data-theme="indigo" style="--sw:#4f46e5" aria-label="Índigo"></button>
+          <button type="button" class="theme-swatch" data-theme="emerald" style="--sw:#059669" aria-label="Esmeralda"></button>
+          <button type="button" class="theme-swatch" data-theme="amber" style="--sw:#d97706" aria-label="Ámbar"></button>
+          <button type="button" class="theme-swatch" data-theme="rose" style="--sw:#e11d48" aria-label="Rosa"></button>
+          <button type="button" class="theme-swatch" data-theme="slate" style="--sw:#475569" aria-label="Pizarra"></button>
+          <button type="button" class="theme-swatch" data-theme="dark" style="--sw:#0f172a" aria-label="Oscuro"></button>
+        </div>
+        <p class="hint">El tema se guarda solo y se aplica en todos los dispositivos.</p>
+      </div>
+      <button id="btn-save-settings" class="btn btn-primary btn-block">Guardar ajustes</button>
+    </section>
 
-  <!-- ============ MODAL: persona (añadir/editar) ============ -->
+    <!-- ============ SECCIÓN: USUARIOS (solo admin) ============ -->
+    <section id="tab-users" hidden>
+      <h2 class="settings-title">Usuarios y acceso</h2>
+      <div class="settings-card">
+        <h3>➕ Crear usuario</h3>
+        <label class="field">
+          <span>Usuario</span>
+          <input id="inp-new-user" type="text" placeholder="Ej: juan.perez" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Contraseña (mín. 6)</span>
+          <input id="inp-new-pass" type="password" placeholder="••••••" autocomplete="new-password">
+        </label>
+        <label class="field">
+          <span>Rol</span>
+          <select id="inp-new-role">
+            <option value="viewer">👀 Solo ver</option>
+            <option value="editor">✏️ Editor</option>
+            <option value="admin">👑 Administrador</option>
+          </select>
+        </label>
+        <button id="btn-create-user" class="btn btn-primary">Crear usuario</button>
+      </div>
+      <div class="settings-card">
+        <h3>👥 Usuarios existentes</h3>
+        <ul id="users-list" class="staff-list"></ul>
+      </div>
+      <p class="hint">👑 Admin: todo · ✏️ Editor: gestiona horario y personal · 👀 Solo ver: consulta sin editar.</p>
+    </section>
+  </main>
   <div id="modal-person" class="modal-overlay" hidden>
     <div class="modal">
       <h2 id="person-modal-title">Añadir personal</h2>
@@ -184,25 +285,13 @@
     </div>
   </div>
 
-  <!-- ============ MODAL: ajustes ============ -->
-  <div id="modal-settings" class="modal-overlay" hidden>
-    <div class="modal">
-      <h2>Ajustes</h2>
-      <label class="field">
-        <span>Nombre de la empresa</span>
-        <input id="inp-company" type="text" placeholder="Ej: Mi Empresa S.A.S." autocomplete="off">
-      </label>
-      <div class="modal-buttons">
-        <button class="btn btn-ghost" data-close>Cancelar</button>
-        <button id="btn-save-settings" class="btn btn-primary">Guardar</button>
-      </div>
-    </div>
-  </div>
+  <!-- (el modal de ajustes fue reemplazado por la sección Ajustes en el menú lateral) -->
 
   <!-- ============ MENÚ contextual de persona ============ -->
   <div id="ctx-menu" class="ctx-menu" hidden></div>
 
   <div id="toast" class="toast" hidden></div>
+
 
   <script src="app.js"></script>
 </body>
