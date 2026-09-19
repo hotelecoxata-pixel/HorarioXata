@@ -10,7 +10,7 @@ const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 
 
 // ---------- Estado ----------
 let people = [];
-let currentWeek = weekKeyOf(new Date());
+let currentWeek = weekKeyOf(todayWall());
 let shifts = {};            // { personId: { "0": "08:00-16:00", ... } }
 let settings = { company: '' };
 let editingPersonId = null; // null = añadiendo
@@ -23,28 +23,37 @@ let authToken = localStorage.getItem('token') || null;
 const monthShiftCache = new Map();          // 'YYYY-MM' -> Map(personId -> { name, role, status, shifts })
 const ROLE_LABEL = { admin: '👑 Administrador', editor: '✏️ Editor', viewer: '👀 Solo ver' };
 const can = (...roles) => !!currentUser && roles.includes(currentUser.role); // permisos por rol
+const DEFAULT_CHIPS = [
+  { start: '06:00', end: '15:00' },
+  { start: '07:00', end: '16:00' },
+  { start: '11:00', end: '20:00' },
+  { start: '12:00', end: '21:00' },
+  { start: '03:00', end: '10:00' },
+];
+const fmtChip = (c) => `${Number(c.start.slice(0, 2))}:${c.start.slice(3)} – ${Number(c.end.slice(0, 2))}:${c.end.slice(3)}`;
 
 // ---------- Helpers ----------
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 function isoMonday(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  // Todo en UTC: mezclar componentes locales con fechas UTC-midnight
+  // desplaza un día en zonas horarias negativas (ej. UTC-4) y rompe la semana ISO
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = (d.getUTCDay() + 6) % 7;
   d.setUTCDate(d.getUTCDate() - day);
   return d;
 }
 
 function weekKeyOf(date) {
-  const monday = isoMonday(date);
-  const y = monday.getUTCFullYear();
-  const thursday = new Date(monday);
-  thursday.setUTCDate(thursday.getUTCDate() + 3);
-  const firstThursday = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 4));
-  const fDay = (firstThursday.getUTCDay() + 6) % 7;
-  firstThursday.setUTCDate(firstThursday.getUTCDate() - fDay + 3);
-  const week = 1 + Math.round((thursday - firstThursday) / (7 * 24 * 3600 * 1000));
-  return `${y}-W${String(week).padStart(2, '0')}`;
+  // Semana ISO-8601 en UTC puro: el jueves de la semana fija el año.
+  // Los que llaman con "ahora" deben pasar la fecha local anclada a UTC (todayWall()).
+  const t = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() + 3 - ((t.getUTCDay() + 6) % 7)); // jueves de esta semana
+  const semana1 = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  semana1.setUTCDate(semana1.getUTCDate() + 3 - ((semana1.getUTCDay() + 6) % 7)); // jueves de la semana 1
+  const week = 1 + Math.round((t - semana1) / (7 * 864e5));
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
 function weekDates(mondayStr) {
@@ -62,6 +71,8 @@ function weekDates(mondayStr) {
 }
 
 const fmtDay = (d) => `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+// "Hoy" según el calendario local del usuario, anclado a medianoche UTC
+function todayWall() { return new Date(Date.now() - new Date().getTimezoneOffset() * 60000); }
 const todayUTC = () => {
   const n = new Date();
   return new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()));
@@ -90,6 +101,25 @@ async function api(path, opts = {}) {
 
 // ================= AUTENTICACIÓN (frontend) =================
 
+function userChips() {
+  const list = (currentUser && Array.isArray(currentUser.chips)) ? currentUser.chips.filter(Boolean) : [];
+  return list.length ? list : DEFAULT_CHIPS;
+}
+
+function renderQuickChips() {
+  const box = document.querySelector('.quick-shifts:not(.quick-conditions)');
+  if (!box) return;
+  box.innerHTML = userChips().map(c =>
+    `<button type="button" class="chip" data-start="${c.start}" data-end="${c.end}">${fmtChip(c)}</button>`).join('');
+  // Re-conectar los chips con el wire del modal de turno (delegación única)
+  box.querySelectorAll('.chip').forEach(chip => chip.addEventListener('click', () => {
+    $('#inp-start').value = chip.dataset.start;
+    $('#inp-end').value = chip.dataset.end;
+    $('#inp-cond').value = '';
+    markChip(chip);
+  }));
+}
+
 function showLogin(message) {
   currentUser = null;
   authToken = null;
@@ -112,7 +142,61 @@ function showApp() {
   // Permisos visibles en la UI: el backend también lo valida en cada pedido
   $('#btn-save-settings').hidden = !can('admin', 'editor');
   document.querySelector('.backup-row').hidden = !can('admin');
+  renderQuickChips();
   applyBranding();
+}
+
+// ---------- Editor de chips favoritos ----------
+function openChipsEditor() {
+  const box = $('#chips-editor');
+  const saved = (currentUser && Array.isArray(currentUser.chips)) ? currentUser.chips : null;
+  const list = (saved && saved.some(Boolean)) ? saved.slice(0, 6) : DEFAULT_CHIPS.slice();
+  while (list.length < 6) list.push(null);
+  box.innerHTML = list.map((c, i) => `
+    <div class="chip-edit-row" data-i="${i}">
+      <span class="n">${i + 1}</span>
+      <input type="time" class="ce-start" value="${c ? c.start : ''}">
+      <span class="sep">–</span>
+      <input type="time" class="ce-end" value="${c ? c.end : ''}">
+    </div>`).join('');
+  $('#modal-chips').hidden = false;
+}
+
+async function saveChips() {
+  const chips = Array.from(document.querySelectorAll('#chips-editor .chip-edit-row')).map(row => {
+    const start = row.querySelector('.ce-start').value;
+    const end = row.querySelector('.ce-end').value;
+    return (start && end) ? { start, end } : null;
+  });
+  if (chips.filter(Boolean).length === 0) {
+    toast('Deja al menos un chip con entrada y salida, o pulsa «Predeterminados»');
+    return;
+  }
+  try {
+    const res = await api('/api/auth/chips', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chips }),
+    });
+    currentUser.chips = res.chips;
+    renderQuickChips();
+    $('#modal-chips').hidden = true;
+    toast('Chips guardados ✅');
+  } catch (e) { toast(e.message); }
+}
+
+async function restoreDefaultChips() {
+  try {
+    const res = await api('/api/auth/chips', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chips: DEFAULT_CHIPS }),
+    });
+    currentUser.chips = res.chips;
+    renderQuickChips();
+    openChipsEditor();
+    toast('Chips predeterminados restaurados');
+  } catch (e) { toast(e.message); }
 }
 
 function logoutLocal(msg) {
@@ -594,7 +678,59 @@ function fallbackCopy(text, okMsg) {
 }
 
 // ---------- Imagen del horario ----------
-const IMG = { W: 800, pad: 26, bandH: 36, rowH: 36, yellow: '#f6a821', ink: '#111827', line: '#cbd5e1' };
+// Imagen pensada para móviles: formato vertical, la columna de horarios ajusta el texto a varias líneas
+// Los colores y el encabezado por área se personalizan en Ajustes (settings.imgBand / imgInk / imgLine / imgAreaHeaders)
+const IMG = { W: 680, pad: 20, bandH: 38, rowH: 40, yellow: '#f6a821', ink: '#111827', line: '#cbd5e1' };
+
+// Colores de la imagen según ajustes (con valores por defecto si vienen vacíos)
+function imgPalette() {
+  const ok = (v, fb) => (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v : fb);
+  return {
+    band: ok(settings.imgBand, IMG.yellow),
+    ink: ok(settings.imgInk, IMG.ink),
+    line: ok(settings.imgLine, IMG.line),
+    areaHeaders: settings.imgAreaHeaders !== false,
+  };
+}
+
+// Texto negro o blanco según la luminancia del fondo de la banda
+function contrastInk(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  return lum > 150 ? '#111827' : '#ffffff';
+}
+
+// Parte un texto en líneas que caben en maxWidth (separa primero por «·» y luego por palabras)
+function wrapCanvasText(ctx, text, maxWidth) {
+  const str = String(text || '');
+  if (!str) return [''];
+  const fits = (s) => ctx.measureText(s).width <= maxWidth;
+  const wrapWords = (t) => {
+    const words = t.split(/\s+/).filter(Boolean);
+    if (!words.length) return [''];
+    const lines = [];
+    let line = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const test = line + ' ' + words[i];
+      if (fits(test)) line = test;
+      else { lines.push(line); line = words[i]; }
+    }
+    lines.push(line);
+    return lines;
+  };
+  const parts = str.split('·').map(s => s.trim()).filter(Boolean);
+  if (parts.length <= 1) return fits(str) ? [str] : wrapWords(str);
+  const lines = [];
+  let cur = parts[0];
+  for (let i = 1; i < parts.length; i++) {
+    const test = cur + ' · ' + parts[i];
+    if (fits(test)) cur = test;
+    else { lines.push(cur); cur = parts[i]; }
+  }
+  lines.push(cur);
+  return lines.flatMap(l => fits(l) ? [l] : wrapWords(l));
+}
 const AREA_DEFS = [
   { re: /cocina/i, fija: 'COCINA PERSONAL FIJO', extra: 'COCINA PERSONAL EXTRA' },
   { re: /bar/i, fija: 'BAR FIJO', extra: 'BAR EXTRA' },
@@ -640,10 +776,30 @@ async function drawScheduleImage() {
   const daySuffix = imgDay === 'all' ? '' : ` — ${DAYS[imgDay].toUpperCase()} ${fmtDay(dates[imgDay])}`;
   const c = $('#schedule-canvas');
   const ctx = c.getContext('2d');
+  const P = imgPalette();
   const S = 2, W = IMG.W;
+  const x0 = IMG.pad, x1 = W - IMG.pad;
+  const nameX = x0 + 10;
+  const schedX = x0 + Math.round((x1 - x0) * 0.46);
+  const schedMaxW = x1 - 10 - schedX;
+  const nameFont = '15px system-ui, sans-serif';
+  const schedFont = '13.5px system-ui, sans-serif';
+  const LH = 17; // alto de línea de texto
 
-  let H = IMG.pad + (logoUrl() ? 54 : 0) + 34 + 30;
-  for (const sec of sections) H += IMG.bandH + sec.people.length * IMG.rowH + 6;
+  // Medición previa: cada fila mide según sus líneas reales (nombre y horarios envueltos)
+  ctx.font = nameFont;
+  const nameLines = new Map();
+  const schedLines = new Map();
+  sections.forEach(sec => sec.people.forEach(p => {
+    nameLines.set(p.id, wrapCanvasText(ctx, p.name + (p.status === 'suspended' ? ' (suspendido)' : ''), schedX - nameX - 8));
+    ctx.font = schedFont;
+    schedLines.set(p.id, wrapCanvasText(ctx, personWeekCell(p), schedMaxW));
+    ctx.font = nameFont;
+  }));
+  const rowH = (p) => Math.max(IMG.rowH, Math.max(nameLines.get(p.id).length, schedLines.get(p.id).length) * LH + 16);
+
+  let H = IMG.pad + (logoUrl() ? 54 : 0) + 34 + 26;
+  for (const sec of sections) H += (P.areaHeaders ? IMG.bandH : 16) + sec.people.reduce((a, p) => a + rowH(p), 0) + 6;
   if (!sections.length) H += 46;
   H += 34 + IMG.pad;
 
@@ -668,45 +824,77 @@ async function drawScheduleImage() {
       y += s + 8;
     } catch (_) { /* logo inválido: se dibuja sin él */ }
   }
+  const title = `HORARIO${daySuffix}${settings.company ? ' — ' + settings.company.toUpperCase() : ''}`;
   ctx.textAlign = 'center';
-  ctx.fillStyle = IMG.ink;
-  ctx.font = 'bold 26px system-ui, sans-serif';
-  ctx.fillText(`HORARIO${daySuffix}${settings.company ? ' — ' + settings.company.toUpperCase() : ''}`, W / 2, y + 24);
+  ctx.fillStyle = P.ink;
+  let titleSize = 24;
+  ctx.font = `bold ${titleSize}px system-ui, sans-serif`;
+  while (ctx.measureText(title).width > W - IMG.pad * 2 && titleSize > 15) {
+    titleSize -= 1.5;
+    ctx.font = `bold ${titleSize}px system-ui, sans-serif`;
+  }
+  ctx.fillText(title, W / 2, y + 22);
   y += 34;
   ctx.fillStyle = '#475569';
-  ctx.font = '16px system-ui, sans-serif';
-  ctx.fillText(`${fmtDay(dates[0])} al ${fmtDay(dates[6])} · Semana ${currentWeek.split('-W')[1]}`, W / 2, y + 18);
-  y += 30;
+  ctx.font = '15px system-ui, sans-serif';
+  ctx.fillText(`${fmtDay(dates[0])} al ${fmtDay(dates[6])} · Semana ${currentWeek.split('-W')[1]}`, W / 2, y + 16);
+  y += 26;
 
-  const x0 = IMG.pad, x1 = W - IMG.pad, splitX = x0 + (x1 - x0) * 0.58;
   ctx.textAlign = 'left';
 
+  let firstSection = true;
   for (const sec of sections) {
-    ctx.fillStyle = IMG.yellow;
-    ctx.fillRect(x0, y, x1 - x0, IMG.bandH);
-    ctx.fillStyle = IMG.ink;
-    ctx.font = 'bold 17px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(sec.title, W / 2, y + 24);
-    ctx.textAlign = 'left';
-    y += IMG.bandH;
-
+    if (P.areaHeaders) {
+      // Banda de área con color configurable y texto en negro o blanco según contraste
+      ctx.fillStyle = P.band;
+      ctx.fillRect(x0, y, x1 - x0, IMG.bandH);
+      ctx.fillStyle = contrastInk(P.band);
+      ctx.font = 'bold 15px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(sec.title, W / 2, y + 24);
+      ctx.textAlign = 'left';
+      y += IMG.bandH;
+    } else if (!firstSection) {
+      // Sin encabezados: separador discreto entre áreas (las filas se dibujan igual)
+      ctx.strokeStyle = P.line;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      ctx.moveTo(x0 + 4, y + 8);
+      ctx.lineTo(x1 - 4, y + 8);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      y += 16;
+    }
+    if (!P.areaHeaders) firstSection = false;
     for (const p of sec.people) {
       const suspended = p.status === 'suspended';
+      const rh = rowH(p);
       ctx.fillStyle = '#fff';
-      ctx.fillRect(x0, y, x1 - x0, IMG.rowH);
-      ctx.fillStyle = suspended ? '#b45309' : IMG.ink;
-      ctx.font = '16px system-ui, sans-serif';
-      ctx.fillText((p.name + (suspended ? ' (suspendido)' : '')).slice(0, 38), x0 + 10, y + 23);
-      ctx.fillText(personWeekCell(p), splitX + 10, y + 23);
-      ctx.strokeStyle = IMG.line;
+      ctx.fillRect(x0, y, x1 - x0, rh);
+
+      // Nombre (envuelto a varias líneas) centrado verticalmente
+      const nLines = nameLines.get(p.id);
+      const nTop = y + (rh - nLines.length * LH) / 2;
+      ctx.fillStyle = suspended ? '#b45309' : P.ink;
+      ctx.font = nameFont;
+      nLines.forEach((l, i) => ctx.fillText(l, nameX, nTop + i * LH + 12));
+
+      // Horarios (envueltos, cada día baja a la línea siguiente si no cabe)
+      const sLines = schedLines.get(p.id);
+      const sTop = y + (rh - sLines.length * LH) / 2;
+      ctx.fillStyle = suspended ? '#b45309' : '#1f2937';
+      ctx.font = schedFont;
+      sLines.forEach((l, i) => ctx.fillText(l, schedX, sTop + i * LH + 12));
+
+      ctx.strokeStyle = P.line;
       ctx.lineWidth = 1;
-      ctx.strokeRect(x0 + .5, y + .5, x1 - x0 - 1, IMG.rowH - 1);
+      ctx.strokeRect(x0 + .5, y + .5, x1 - x0 - 1, rh - 1);
       ctx.beginPath();
-      ctx.moveTo(splitX + .5, y);
-      ctx.lineTo(splitX + .5, y + IMG.rowH);
+      ctx.moveTo(schedX + .5, y);
+      ctx.lineTo(schedX + .5, y + rh);
       ctx.stroke();
-      y += IMG.rowH;
+      y += rh;
     }
     y += 6;
   }
@@ -815,7 +1003,7 @@ async function renderSummary() {
     const body = lastSummaryRows.map(r => {
       tot.q1 += r.q1; tot.q2 += r.q2; tot.total += r.total;
       const conds = Object.entries(r.condCount || {}).map(([c, n]) => `${SPECIAL_CONDITIONS[c]} ${n}`).join(' ');
-      const name = `${escapeHtml(r.name)}${r.role ? ` <small>· ${escapeHtml(r.role)}</small>` : ''}${conds ? ` <small>${conds}</small>` : ''}`;
+      const name = `${escapeHtml(r.name)}${conds ? ` <small>${conds}</small>` : ''}`;
       return `<tr${r.suspended ? ' class="suspended-row"' : ''}><td>${name}</td><td>${r.q1}</td><td>${r.q2}</td><td>${r.total}</td></tr>`;
     }).join('') || '<tr><td colspan="4">Sin personal</td></tr>';
     $('#summary-table').innerHTML =
@@ -846,10 +1034,11 @@ function buildSummaryMessage() {
 }
 
 async function drawSummaryImage() {
+  const P = imgPalette();
   const c = $('#schedule-canvas');
   const ctx = c.getContext('2d');
-  const S = 2, W = 800, x0 = 26, x1 = W - 26, rowH = 34, pad = 26;
-  const split = [0, 0.52, 0.72, 0.87].map(f => x0 + (x1 - x0) * f);
+  const S = 2, W = 680, x0 = 22, x1 = W - 22, rowH = 34, pad = 22;
+  const split = [0, 0.48, 0.70, 0.86].map(f => x0 + (x1 - x0) * f);
   const [y0, m0] = summaryMonth.split('-').map(Number);
 
   const H = pad + (logoUrl() ? 54 : 0) + 34 + 22 + IMG.bandH + Math.max(lastSummaryRows.length, 1) * rowH + 40 + pad;
@@ -873,17 +1062,17 @@ async function drawSummaryImage() {
       y += s + 6;
     } catch (_) {}
   }
-  ctx.fillStyle = IMG.ink; ctx.textAlign = 'center';
-  ctx.font = 'bold 24px system-ui, sans-serif';
+  ctx.fillStyle = P.ink; ctx.textAlign = 'center';
+  ctx.font = 'bold 22px system-ui, sans-serif';
   ctx.fillText(`DÍAS PROGRAMADOS${settings.company ? ' — ' + settings.company.toUpperCase() : ''}`, W / 2, y + 22);
   y += 34;
   ctx.fillStyle = '#475569'; ctx.font = '15px system-ui, sans-serif';
   ctx.fillText(`${MONTHS[m0 - 1].toUpperCase()} ${y0} · 1.ª quincena: 1–15 · 2.ª: 16–fin de mes`, W / 2, y + 14);
   y += 22;
 
-  ctx.fillStyle = IMG.yellow;
+  ctx.fillStyle = P.band;
   ctx.fillRect(x0, y, x1 - x0, IMG.bandH);
-  ctx.fillStyle = IMG.ink; ctx.font = 'bold 15px system-ui, sans-serif';
+  ctx.fillStyle = contrastInk(P.band); ctx.font = 'bold 15px system-ui, sans-serif';
   ['PERSONA', '1.ª QUINCENA', '2.ª QUINCENA', 'TOTAL'].forEach((t, i) => {
     ctx.textAlign = i === 0 ? 'left' : 'center';
     ctx.fillText(t, i === 0 ? x0 + 10 : (split[i] + split[i + 1]) / 2, y + 23);
@@ -895,16 +1084,16 @@ async function drawSummaryImage() {
   for (const r of rows) {
     ctx.fillStyle = '#fff';
     ctx.fillRect(x0, y, x1 - x0, rowH);
-    ctx.fillStyle = r.suspended ? '#b45309' : IMG.ink;
+    ctx.fillStyle = r.suspended ? '#b45309' : P.ink;
     ctx.font = '15px system-ui, sans-serif';
-    ctx.fillText((r.name + (r.suspended ? ' (suspendido)' : '')).slice(0, 36), x0 + 10, y + 22);
+    ctx.fillText((r.name + (r.suspended ? ' (suspendido)' : '')).slice(0, 32), x0 + 10, y + 22);
     ctx.textAlign = 'center';
     ctx.fillText(String(r.q1), (split[1] + split[2]) / 2, y + 22);
     ctx.fillText(String(r.q2), (split[2] + split[3]) / 2, y + 22);
     ctx.font = 'bold 15px system-ui, sans-serif';
     ctx.fillText(String(r.total), (split[3] + x1) / 2, y + 22);
     ctx.textAlign = 'left';
-    ctx.strokeStyle = IMG.line; ctx.lineWidth = 1;
+    ctx.strokeStyle = P.line; ctx.lineWidth = 1;
     ctx.strokeRect(x0 + .5, y + .5, x1 - x0 - 1, rowH - 1);
     for (let i = 1; i < split.length; i++) {
       ctx.beginPath(); ctx.moveTo(split[i] + .5, y); ctx.lineTo(split[i] + .5, y + rowH); ctx.stroke();
@@ -968,6 +1157,11 @@ function navigate(section) {
 function showSettings() {
   $('#inp-company').value = settings.company || '';
   $('#inp-taxid').value = settings.taxId || '';
+  const P = imgPalette();
+  $('#inp-img-band').value = P.band;
+  $('#inp-img-ink').value = P.ink;
+  $('#inp-img-line').value = P.line;
+  $('#chk-img-headers').checked = P.areaHeaders;
   updateLogoPreview();
   applyTheme(settings.theme);
 }
@@ -1008,6 +1202,10 @@ async function saveSettings() {
         taxId: $('#inp-taxid').value.trim(),
         logo: settings.logo || '',
         theme: settings.theme || 'indigo',
+        imgBand: $('#inp-img-band').value,
+        imgInk: $('#inp-img-ink').value,
+        imgLine: $('#inp-img-line').value,
+        imgAreaHeaders: $('#chk-img-headers').checked,
       }),
     });
     applyBranding();
@@ -1048,12 +1246,19 @@ function wire() {
 
   $('#btn-prev-week').addEventListener('click', () => changeWeek(-1));
   $('#btn-next-week').addEventListener('click', () => changeWeek(1));
-  $('#btn-now').addEventListener('click', () => { currentWeek = weekKeyOf(new Date()); resetSentTracking(); refresh().catch(e => toast(e.message)); });
+  $('#btn-now').addEventListener('click', () => { currentWeek = weekKeyOf(todayWall()); resetSentTracking(); refresh().catch(e => toast(e.message)); });
 
   $('#btn-add-person').addEventListener('click', () => openPersonModal(null));
   $('#btn-save-person').addEventListener('click', savePerson);
   $('#btn-save-shift').addEventListener('click', saveShift);
   $('#btn-save-settings').addEventListener('click', saveSettings);
+  $('#btn-img-defaults').addEventListener('click', () => {
+    $('#inp-img-band').value = '#f6a821';
+    $('#inp-img-ink').value = '#111827';
+    $('#inp-img-line').value = '#cbd5e1';
+    $('#chk-img-headers').checked = true;
+    toast('Valores restaurados — toca «Guardar ajustes» para aplicarlos');
+  });
 
   // Menú lateral
   $('#btn-menu').addEventListener('click', openDrawer);
@@ -1169,6 +1374,9 @@ function wire() {
   });
   $('#btn-logout').addEventListener('click', doLogout);
   $('#btn-create-user').addEventListener('click', createUser);
+  $('#btn-edit-chips').addEventListener('click', openChipsEditor);
+  $('#btn-save-chips').addEventListener('click', saveChips);
+  $('#btn-restore-chips').addEventListener('click', restoreDefaultChips);
 
   // Historial de retirados
   $('#btn-archive').addEventListener('click', toggleArchive);

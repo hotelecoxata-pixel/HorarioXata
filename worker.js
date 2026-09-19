@@ -7,7 +7,8 @@ const KEEP_BACKUPS = 30;
 
 const PERSON_STATUS = ['active', 'suspended', 'retired', 'vacation', 'leave'];
 const THEMES = ['indigo', 'emerald', 'amber', 'rose', 'slate', 'dark'];
-const DEFAULT_SETTINGS = { company: '', taxId: '', logo: '', theme: 'indigo' };
+const DEFAULT_SETTINGS = { company: '', taxId: '', logo: '', theme: 'indigo', imgBand: '#f6a821', imgInk: '#111827', imgLine: '#cbd5e1', imgAreaHeaders: true };
+const isValidHexColor = (v) => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v);
 const ROLES = ['admin', 'editor', 'viewer'];
 const MAX_JSON = 1.5 * 1024 * 1024; // cota prudente de cuerpo JSON
 const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 días
@@ -78,7 +79,7 @@ function bytesToHex(bytes) {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-const publicUser = (u) => ({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt });
+const publicUser = (u) => ({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, chips: u.chips || null });
 
 const findUser = (db, username) => {
   const q = String(username || '').trim().toLowerCase();
@@ -174,6 +175,32 @@ export default {
     // ---- Gestión de usuarios (solo admin) ----
     if (pathname === '/api/auth/me' && request.method === 'GET') {
       return json({ user: publicUser(user) });
+    }
+
+    // Chips favoritos del propio usuario: { chips: [{start,end}|null x6] }
+    if (pathname === '/api/auth/chips' && request.method === 'PUT') {
+      const body = await readJson(request);
+      const raw = Array.isArray(body && body.chips) ? body.chips : [];
+      if (raw.length > 6) return json({ error: 'Máximo 6 chips' }, 400);
+      const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+      let chips;
+      try {
+        chips = raw.slice(0, 6).map((c, i) => {
+          if (!c || typeof c !== 'object') return null; // fila vacía
+          const start = String(c.start || ''), end = String(c.end || '');
+          if (!start && !end) return null; // fila vacía
+          if (!HHMM.test(start) || !HHMM.test(end)) throw new Error(`Chip ${i + 1}: horas incompletas o inválidas`);
+          if (end <= start) throw new Error(`Chip ${i + 1}: la salida debe ser mayor a la entrada`);
+          return { start, end };
+        });
+      } catch (e) {
+        return json({ error: e.message }, 400);
+      }
+      while (chips.length < 6) chips.push(null);
+      if (!chips.some(Boolean)) return json({ error: 'Deja al menos un chip con entrada y salida' }, 400);
+      user.chips = chips;
+      await saveDb(env, db);
+      return json({ ok: true, chips: user.chips });
     }
 
     if (pathname === '/api/auth/users' && request.method === 'GET') {
@@ -370,6 +397,10 @@ export default {
           taxId: body.taxId !== undefined ? String(body.taxId).trim().slice(0, 40) : prev.taxId,
           logo: body.logo !== undefined ? String(body.logo).slice(0, 300000) : prev.logo,
           theme: THEMES.includes(body.theme) ? body.theme : prev.theme,
+          imgBand: isValidHexColor(body.imgBand) ? body.imgBand.toLowerCase() : prev.imgBand,
+          imgInk: isValidHexColor(body.imgInk) ? body.imgInk.toLowerCase() : prev.imgInk,
+          imgLine: isValidHexColor(body.imgLine) ? body.imgLine.toLowerCase() : prev.imgLine,
+          imgAreaHeaders: body.imgAreaHeaders !== undefined ? body.imgAreaHeaders === true : prev.imgAreaHeaders,
         };
         await saveDb(env, db);
         return json(db.settings);

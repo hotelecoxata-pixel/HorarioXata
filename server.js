@@ -14,7 +14,8 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const KEEP_BACKUPS = 30; // respaldos diarios conservados
 const THEMES = ['indigo', 'emerald', 'amber', 'rose', 'slate', 'dark'];
-const DEFAULT_SETTINGS = { company: '', taxId: '', logo: '', theme: 'indigo' };
+const DEFAULT_SETTINGS = { company: '', taxId: '', logo: '', theme: 'indigo', imgBand: '#f6a821', imgInk: '#111827', imgLine: '#cbd5e1', imgAreaHeaders: true };
+const isValidHexColor = (v) => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v);
 const ROLES = ['admin', 'editor', 'viewer'];
 const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 días
 
@@ -85,7 +86,7 @@ function ensureInitialAdmin() {
 ensureInitialAdmin();
 
 function publicUser(u) {
-  return { id: u.id, username: u.username, role: u.role, createdAt: u.createdAt };
+  return { id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, chips: u.chips || null };
 }
 
 function findUser(db, username) {
@@ -179,6 +180,33 @@ app.post('/api/auth/login', (req, res) => {
 // ¿Sigo autenticado? El frontend lo usa al cargar la página
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
+});
+
+// Chips favoritos del propio usuario: { chips: [{start,end}|null x6] }
+app.put('/api/auth/chips', requireAuth, (req, res) => {
+  const db = req.db;
+  const raw = Array.isArray(req.body && req.body.chips) ? req.body.chips : [];
+  if (raw.length > 6) return res.status(400).json({ error: 'Máximo 6 chips' });
+  const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+  let chips;
+  try {
+    chips = raw.slice(0, 6).map((c, i) => {
+      if (!c || typeof c !== 'object') return null; // fila vacía
+      const start = String(c.start || ''), end = String(c.end || '');
+      if (!start && !end) return null; // fila vacía
+      if (!HHMM.test(start) || !HHMM.test(end)) throw new Error(`Chip ${i + 1}: horas incompletas o inválidas`);
+      if (end <= start) throw new Error(`Chip ${i + 1}: la salida debe ser mayor a la entrada`);
+      return { start, end };
+    });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  while (chips.length < 6) chips.push(null);
+  if (!chips.some(Boolean)) return res.status(400).json({ error: 'Deja al menos un chip con entrada y salida' });
+  const user = db.users.find(u => u.id === req.user.id);
+  user.chips = chips;
+  saveDb(db);
+  res.json({ ok: true, chips: user.chips });
 });
 
 // Cerrar sesión: invalida el token actual
@@ -381,6 +409,11 @@ app.put('/api/settings', requireAuth, requireRole('admin', 'editor'), (req, res)
     taxId: body.taxId !== undefined ? String(body.taxId).trim().slice(0, 40) : prev.taxId,
     logo: body.logo !== undefined ? String(body.logo).slice(0, 300000) : prev.logo, // dataURL ~máx 2 MB
     theme: THEMES.includes(body.theme) ? body.theme : prev.theme,
+    // Personalización de la imagen: colores en formato #rrggbb y encabezados de área on/off
+    imgBand: isValidHexColor(body.imgBand) ? body.imgBand.toLowerCase() : prev.imgBand,
+    imgInk: isValidHexColor(body.imgInk) ? body.imgInk.toLowerCase() : prev.imgInk,
+    imgLine: isValidHexColor(body.imgLine) ? body.imgLine.toLowerCase() : prev.imgLine,
+    imgAreaHeaders: body.imgAreaHeaders !== undefined ? body.imgAreaHeaders === true : prev.imgAreaHeaders,
   };
   saveDb(db);
   res.json(db.settings);

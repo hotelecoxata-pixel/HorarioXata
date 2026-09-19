@@ -127,6 +127,31 @@
         </div>
         <p class="hint">El tema se guarda solo y se aplica en todos los dispositivos.</p>
       </div>
+      <div class="settings-card">
+        <h3>🖼️ Imagen del horario</h3>
+        <p class="hint" style="margin-top:-6px">Colores con los que se dibuja la imagen que envías por WhatsApp.</p>
+        <div class="img-colors">
+          <label class="img-color">
+            <input id="inp-img-band" type="color" value="#f6a821">
+            <span>Encabezados</span>
+          </label>
+          <label class="img-color">
+            <input id="inp-img-ink" type="color" value="#111827">
+            <span>Texto</span>
+          </label>
+          <label class="img-color">
+            <input id="inp-img-line" type="color" value="#cbd5e1">
+            <span>Bordes</span>
+          </label>
+        </div>
+        <label class="switch-row">
+          <input id="chk-img-headers" type="checkbox" checked>
+          <span class="switch-track" aria-hidden="true"></span>
+          <span class="switch-label">Encabezado por cada área</span>
+        </label>
+        <p class="hint">Si lo apagas, la imagen se agrupa por área sin bandas amarillas, con una línea divisoria entre grupos.</p>
+        <button type="button" id="btn-img-defaults" class="btn btn-ghost btn-sm" style="margin-top:8px">↩️ Restaurar valores</button>
+      </div>
       <button id="btn-save-settings" class="btn btn-primary btn-block">Guardar ajustes</button>
     </section>
 
@@ -209,8 +234,23 @@
       </div>
       <p class="hint">Toca un chip para rellenar la entrada y salida, o deja ambos vacíos para quitar el turno de ese día.</p>
       <div class="modal-buttons">
+        <button type="button" id="btn-edit-chips" class="btn btn-ghost" title="Elige tus 6 turnos favoritos">⚙️ Chips</button>
         <button class="btn btn-ghost" data-close>Cancelar</button>
         <button id="btn-save-shift" class="btn btn-primary">Guardar turno</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: chips favoritos del usuario ============ -->
+  <div id="modal-chips" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2>⚙️ Tus 6 chips favoritos</h2>
+      <p class="hint">Se guardan en tu usuario y te acompañan en cualquier dispositivo.</p>
+      <div id="chips-editor" class="chips-editor"></div>
+      <div class="modal-buttons">
+        <button class="btn btn-ghost" data-close>Cancelar</button>
+        <button id="btn-restore-chips" class="btn btn-ghost">↩️ Predeterminados</button>
+        <button id="btn-save-chips" class="btn btn-primary">Guardar chips</button>
       </div>
     </div>
   </div>
