@@ -315,7 +315,8 @@ section[hidden] { display: none !important; }
 .modal h2 { font-size: 1.05rem; margin-bottom: 14px; }
 .field { display: block; margin-bottom: 12px; }
 .field span { display: block; font-size: .8rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
-.field input {
+.field input,
+.field select {
   width: 100%;
   padding: 11px 12px;
   border: 1.5px solid var(--border);
@@ -324,7 +325,42 @@ section[hidden] { display: none !important; }
   background: var(--tint);
   color: var(--text);
 }
-.field input:focus { outline: none; border-color: var(--primary); background: #fff; }
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+.field input:focus,
+.field select:focus { outline: none; border-color: var(--primary); background-color: #fff; }
+[data-theme="dark"] .field input:focus,
+[data-theme="dark"] .field select:focus { background-color: var(--card); }
+
+/* Selector de rol compacto en la lista de usuarios */
+.role-sel {
+  padding: 8px 30px 8px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text);
+  background-color: var(--card);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  flex: 1 1 auto;
+  min-width: 128px;
+  max-width: 170px;
+  margin-left: auto;
+}
+.user-item .btn-sm { flex: 0 0 auto; }
+.role-sel:focus { outline: none; border-color: var(--primary); }
 .modal-buttons { display: flex; gap: 8px; margin-top: 16px; }
 .modal-buttons .btn { flex: 1; padding: 12px; font-size: .95rem; }
 .hint { font-size: .78rem; color: var(--muted); }
@@ -516,9 +552,9 @@ section[hidden] { display: none !important; }
 .login-error { color: var(--danger); font-size: 13px; text-align: center; margin: 0; }
 
 /* ---------- Usuarios ---------- */
-.user-item { display: flex; align-items: center; gap: 10px; background: var(--tint); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+.user-item { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; background: var(--tint); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
 .user-item .avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex: 0 0 auto; }
-.user-item .info { flex: 1; min-width: 0; }
+.user-item .info { flex: 1 1 140px; min-width: 0; }
 .user-item .name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .user-item .sub { color: var(--muted); font-size: 12px; }
 .user-item .badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: var(--border); }
