@@ -23,6 +23,18 @@ Aplicación web para armar el horario semanal de tu empresa y compartirlo por Wh
 - **⚙️ Ajustes**: nombre de la empresa, foto (logo) e ID fiscal — se ven en el menú y en las imágenes que compartes.
 - **🎨 Temas de color**: índigo, esmeralda, ámbar, rosa, pizarra y oscuro (nocturno). Se guardan en la base y se aplican en todos los dispositivos.
 
+## ☁️ App en internet (Cloudflare Workers)
+
+La app está desplegada y disponible **24/7** en:
+
+**https://horarioxata.hotelecoxata.workers.dev**
+
+- Funciona desde PC y celular, sin estar en el mismo Wi-Fi.
+- La base de datos vive en **Cloudflare KV** (con respaldo diario automático, últimos 30 días) — no depende de tu PC.
+- Para redesplegar tras cambios: `npx wrangler deploy` (requiere `wrangler login`).
+- Configuración del Worker: `wrangler.jsonc` (assets estáticos + binding KV `HORARIOS`); código del backend en la nube: `worker.js`.
+- La versión local (`npm start`) sigue funcionando con su propia base en `data/db.json`; son bases independientes.
+
 ## 🚀 Cómo usarla en tu PC
 
 ```bash
@@ -55,13 +67,15 @@ Esta app no tiene contraseña. Si la pones en internet, cualquier persona con el
 ## 📁 Estructura
 
 ```
-├── server.js         # Servidor Express + API (personal, horario, historial, ajustes, respaldo)
+├── server.js         # Servidor Express local + API (usa data/db.json)
+├── worker.js         # Worker de Cloudflare para el despliegue en internet (usa KV)
+├── wrangler.jsonc    # Configuración del despliegue (assets + KV)
 ├── public/
 │   ├── index.html    # Interfaz
 │   ├── style.css     # Estilos responsive (PC y móvil)
-│   └── app.js        # Lógica del frontend
+│   └── app.js        # Lógica del frontend (compartida por local y nube)
 ├── data/
-│   ├── db.json       # Base de datos (se crea sola: personal, horarios, ajustes, historial)
-│   └── backups/      # Respaldo automático diario (últimos 30 días)
+│   ├── db.json       # Base de datos local (se crea sola)
+│   └── backups/      # Respaldo automático diario local (últimos 30 días)
 └── package.json
 ```
